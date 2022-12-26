@@ -327,6 +327,39 @@ class _VideoFrameIterator(Iterator[VideoFrame]):
         return v
 
 
+    def get_keyframe_data(self, cap, similarity_threshold: Optional[float] = 0.3) -> List[VideoFrame]:
+        """
+        Decodes video frames using opencv
+        """
+        assert similarity_threshold < 0.0 or similarity_threshold > 1.0
+
+        self._pos = -1
+
+        success, prev_frame = cap.read()
+
+        prev_frame = cv2.resize(prev_frame, (144, 144))
+        prev_frame = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        prev_mean, prev_std = cv2.meanStdDev(prev_frame)
+
+        h, w = prev_frame.shape
+
+        keyframes = []
+        while success:
+            success, curr_frame = cap.read()
+            curr_frame = cv2.resize(curr_frame, (144, 144))
+            curr_frame = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+            curr_mean, curr_std = cv2.meanStdDev(curr_frame)
+
+            zncc_score = np.sum(np.multiply((prev_frame - prev_mean), (curr_frame - curr_mean)))
+            zncc_score = float(zncc_score) / (w * h * prev_std * curr_std)
+            
+            if zncc_score < similarity_threshold:
+                prev_frame, prev_mean, prev_std = curr_frame, curr_mean, curr_std
+                keyframes.append(self._make_frame(index=self._pos))
+
+            self._pos += 1
+
+
 class Video(MediaElement, Iterable[VideoFrame]):
     """
     Provides random access to the video frames.
@@ -381,6 +414,9 @@ class Video(MediaElement, Iterable[VideoFrame]):
             raise IndexError(f"Video doesn't contain frame #{idx}.")
 
         return self._get_iterator().get_frame_data(idx)
+
+    def get_keyframe_data(self, similiarity_threshold: float) -> List[VideoFrame]:
+        return self._get_iterator().get_keyframe_data(similiarity_threshold)
 
     def __iter__(self) -> Iterator[VideoFrame]:
         """
